@@ -35,6 +35,7 @@ class TrainingParameters:
     N_STEPS = 2 ** 10  # number of time steps per process per data collection
     MINIBATCH_SIZE = int(2 ** 10)
     DEMONSTRATION_PROB = 0.1  # imitation learning rate
+    COMM_DIST = 5
 
 
 class NetParameters:
@@ -79,7 +80,7 @@ class RecordingParameters:
     ENTITY = 'yutong'
     TIME = datetime.datetime.now().strftime('%d-%m-%y%H%M')
     EXPERIMENT_PROJECT = 'MAPF'
-    EXPERIMENT_NAME = 'SCRIMP'
+    EXPERIMENT_NAME = 'SCRIMP_local'
     EXPERIMENT_NOTE = ''
     SAVE_INTERVAL = 5e5  # interval of saving model
     BEST_INTERVAL = 0  # interval of saving model with the best performance
@@ -114,6 +115,7 @@ all_args = {'N_AGENTS': EnvParameters.N_AGENTS, 'N_ACTIONS': EnvParameters.N_ACT
             'N_MAX_STEPS': TrainingParameters.N_MAX_STEPS,
             'N_STEPS': TrainingParameters.N_STEPS, 'MINIBATCH_SIZE': TrainingParameters.MINIBATCH_SIZE,
             'DEMONSTRATION_PROB': TrainingParameters.DEMONSTRATION_PROB,
+            "COMM_DIST": TrainingParameters.COMM_DIST,
             'NET_SIZE': NetParameters.NET_SIZE, 'NUM_CHANNEL': NetParameters.NUM_CHANNEL,
             'GOAL_REPR_SIZE': NetParameters.GOAL_REPR_SIZE, 'VECTOR_LEN': NetParameters.VECTOR_LEN,
             'N_POSITION': NetParameters.N_POSITION,

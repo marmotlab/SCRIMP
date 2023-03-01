@@ -22,7 +22,7 @@ class MultiHeadAttention(nn.Module):
 
         self.attention = ScaledDotProductAttention(temperature=d_k ** 0.5)
 
-    def forward(self, q, k, v):
+    def forward(self, q, k, v, comm_mask):
         """calculate multi-head attention"""
         d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
         sz_b, len_q, len_k, len_v = q.size(0), q.size(1), k.size(1), v.size(1)
@@ -35,7 +35,7 @@ class MultiHeadAttention(nn.Module):
         # transpose for attention dot product
         q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
         # calculate attention
-        q, attn = self.attention(q, k, v)
+        q, attn = self.attention(q, k, v, comm_mask)
         # combine the last two dimensions to concatenate all the heads together
         q = q.transpose(1, 2).contiguous().view(sz_b, len_q, -1)
         q = self.fc(q)

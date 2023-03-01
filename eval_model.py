@@ -17,10 +17,10 @@ CASE = [[8, 10, 0], [8, 10, 0.15], [8, 10, 0.3], [16, 20, 0.0], [16, 20, 0.15], 
 set_global_seeds(SetupParameters.SEED)
 
 
-def one_step(env0, actions, model0, pre_value, input_state, ps, one_episode_perf, message, episodic_buffer0):
+def one_step(env0, actions, model0, pre_value, input_state, ps, one_episode_perf, message, episodic_buffer0, comm_mask):
     obs, vector, reward, done, _, on_goal, _, _, _, _, _, max_on_goal, num_collide, _, modify_actions = env0.joint_step(
         actions, one_episode_perf['episode_len'], model0, pre_value, input_state, ps, no_reward=False, message=message,
-        episodic_buffer=episodic_buffer0)
+        episodic_buffer=episodic_buffer0, comm_mask=comm_mask)
 
     one_episode_perf['collide'] += num_collide
     vector[:, :, -1] = modify_actions
@@ -34,6 +34,7 @@ def evaluate(eval_env, model0, device, episodic_buffer0, num_agent, save_gif0):
     episode_frames = []
 
     done, _, obs, vector, _ = reset_env(eval_env, num_agent)
+    comm_mask = eval_env.get_comm_mask()
 
     episodic_buffer0.reset(2e6, num_agent)
     new_xy = eval_env.get_positions()
@@ -48,12 +49,13 @@ def evaluate(eval_env, model0, device, episodic_buffer0, num_agent, save_gif0):
 
     while not done:
         actions, hidden_state, v_all, ps, message = model0.final_evaluate(obs, vector, hidden_state, message, num_agent,
-                                                                          greedy=False)
+                                                                          comm_mask, greedy=False)
 
         rewards, obs, vector, done, one_episode_perf, max_on_goals, on_goal = one_step(eval_env, actions, model0, v_all,
                                                                                        hidden_state, ps,
                                                                                        one_episode_perf, message,
-                                                                                       episodic_buffer0)
+                                                                                       episodic_buffer0, comm_mask)
+        comm_mask = eval_env.get_comm_mask()
         new_xy = eval_env.get_positions()
         processed_rewards, _, intrinsic_reward, min_dist = episodic_buffer0.if_reward(new_xy, rewards, done, on_goal)
 
@@ -82,7 +84,7 @@ def evaluate(eval_env, model0, device, episodic_buffer0, num_agent, save_gif0):
 
 if __name__ == "__main__":
     # download trained model0
-    model_path = './final'
+    model_path = './local_final'
     path_checkpoint = model_path + "/net_checkpoint.pkl"
     model = Model(0, torch.device('cpu'))
     model.network.load_state_dict(torch.load(path_checkpoint)['model'])
@@ -90,7 +92,7 @@ if __name__ == "__main__":
     # recording
     wandb_id = wandb.util.generate_id()
     wandb.init(project='MAPF_evaluation',
-               name='evaluation_global_SCRIMP',
+               name='evaluation_local_SCRIMP',
                entity=RecordingParameters.ENTITY,
                notes=RecordingParameters.EXPERIMENT_NOTE,
                config=all_args,

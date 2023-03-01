@@ -36,6 +36,7 @@ class Runner(object):
         self.message = torch.zeros((1, self.num_agent, NetParameters.NET_SIZE)).to(self.local_device)
 
         self.done, self.valid_actions, self.obs, self.vector, self.train_valid = reset_env(self.env, self.num_agent)
+        self.comm_mask = self.env.get_comm_mask()
 
         self.episodic_buffer = EpisodicBuffer(0, self.num_agent)
         new_xy = self.env.get_positions()
@@ -50,6 +51,7 @@ class Runner(object):
                 mb_values_all, mb_done, mb_ps, mb_actions = [], [], [], [], [], [], [], [], [], [], []
             mb_hidden_state = []
             mb_message = []
+            mb_mask = []
             mb_train_valid, mb_blocking = [], []
             performance_dict = {'per_r': [], 'per_in_r': [], 'per_ex_r': [], 'per_valid_rate': [],
                                 'per_episode_len': [], 'per_block': [],
@@ -63,9 +65,11 @@ class Runner(object):
                 mb_hidden_state.append(
                     [self.hidden_state[0].cpu().detach().numpy(), self.hidden_state[1].cpu().detach().numpy()])
                 mb_message.append(self.message)
+                mb_mask.append(self.comm_mask)
+
                 actions, ps, values_in, values_ex, values_all, pre_block, output_state, num_invalid, self.message = \
                     self.local_model.step(self.obs, self.vector, self.valid_actions, self.hidden_state,
-                                          self.episodic_buffer.no_reward, self.message, self.num_agent)
+                                          self.episodic_buffer.no_reward, self.message, self.num_agent, self.comm_mask)
                 self.one_episode_perf['invalid'] += num_invalid
                 mb_values_in.append(values_in)
                 mb_values_ex.append(values_ex)
@@ -78,7 +82,7 @@ class Runner(object):
                     num_on_goals, self.one_episode_perf, max_on_goals, action_status, modify_actions, on_goal \
                     = one_step(self.env, self.one_episode_perf, actions, pre_block, self.local_model, values_all,
                                output_state, ps, self.episodic_buffer.no_reward, self.message, self.episodic_buffer,
-                               self.num_agent)
+                               self.num_agent, self.comm_mask)
 
                 new_xy = self.env.get_positions()
                 processed_rewards, be_rewarded, intrinsic_rewards, min_dist = self.episodic_buffer.if_reward(new_xy,
@@ -89,6 +93,7 @@ class Runner(object):
                 self.vector[:, :, 3] = rewards
                 self.vector[:, :, 4] = intrinsic_rewards
                 self.vector[:, :, 5] = min_dist
+                self.comm_mask = self.env.get_comm_mask()
 
                 mb_actions.append(modify_actions)
                 for i in range(self.num_agent):
@@ -117,6 +122,7 @@ class Runner(object):
                     self.done, self.valid_actions, self.obs, self.vector, self.train_valid = reset_env(self.env,
                                                                                                        self.num_agent)
                     self.done = True
+                    self.comm_mask = self.env.get_comm_mask()
 
                     self.hidden_state = (
                         torch.zeros((self.num_agent, NetParameters.NET_SIZE // 2)).to(self.local_device),
@@ -145,10 +151,11 @@ class Runner(object):
             mb_message = np.concatenate(mb_message, axis=0)
             mb_train_valid = np.stack(mb_train_valid)
             mb_blocking = np.concatenate(mb_blocking, axis=0)
+            mb_mask = np.concatenate(mb_mask, axis=0)
 
             last_values_in, last_values_ex, last_values_all = np.squeeze(
                 self.local_model.value(self.obs, self.vector, self.hidden_state, self.episodic_buffer.no_reward,
-                                       self.message))
+                                       self.message, self.comm_mask))
 
             # calculate advantages
             mb_advs_in = np.zeros_like(mb_rewards_in)
@@ -189,7 +196,7 @@ class Runner(object):
             mb_returns_all = np.add(mb_advs_all, mb_values_all)
 
         return mb_obs, mb_vector, mb_returns_in, mb_returns_ex, mb_returns_all, mb_values_in, mb_values_ex, \
-            mb_values_all, mb_actions, mb_ps, mb_hidden_state, mb_train_valid, mb_blocking, mb_message, \
+            mb_values_all, mb_actions, mb_ps, mb_hidden_state, mb_train_valid, mb_blocking, mb_message, mb_mask,\
             len(performance_dict['per_r']), performance_dict
 
     def imitation(self, weights, total_steps):
@@ -199,6 +206,7 @@ class Runner(object):
 
             mb_obs, mb_vector, mb_hidden_state, mb_actions = [], [], [], []
             mb_message = []
+            mb_mask = []
             step = 0
             episode = 0
             self.imitation_num_agent = EnvParameters.N_AGENTS
@@ -216,7 +224,7 @@ class Runner(object):
                 try:
                     obs = None
                     mstar_path = od_mstar.find_path(world, start_positions, goals, inflation=2, time_limit=5)
-                    obs, vector, actions, hidden_state, message = self.parse_path(mstar_path)
+                    obs, vector, actions, hidden_state, message, mask = self.parse_path(mstar_path)
                 except OutOfTimeError:
                     print("timeout")
                 except NoSolutionError:
@@ -228,6 +236,7 @@ class Runner(object):
                     mb_actions.append(actions)
                     mb_hidden_state.append(hidden_state)
                     mb_message.append(message)
+                    mb_mask.append(mask)
                     step += np.shape(vector)[0]
                     episode += 1
 
@@ -236,12 +245,14 @@ class Runner(object):
             mb_actions = np.concatenate(mb_actions, axis=0)
             mb_hidden_state = np.concatenate(mb_hidden_state, axis=0)
             mb_message = np.concatenate(mb_message, axis=0)
-        return mb_obs, mb_vector, mb_actions, mb_hidden_state, mb_message, episode, step
+            mb_mask = np.concatenate(mb_mask, axis=0)
+        return mb_obs, mb_vector, mb_actions, mb_hidden_state, mb_message, mb_mask, episode, step
 
     def parse_path(self, path):
         """take the path generated from M* and create the corresponding inputs and actions"""
         mb_obs, mb_vector, mb_actions, mb_hidden_state = [], [], [], []
         mb_message = []
+        mb_mask = []
         hidden_state = (
             torch.zeros((self.imitation_num_agent, NetParameters.NET_SIZE // 2)).to(self.local_device),
             torch.zeros((self.imitation_num_agent, NetParameters.NET_SIZE // 2)).to(self.local_device))
@@ -254,14 +265,16 @@ class Runner(object):
             s = self.imitation_env.observe(i + 1)
             obs[:, i, :, :, :] = s[0]
             vector[:, i, : 3] = s[1]
+        comm_mask = self.imitation_env.get_comm_mask()
 
         for t in range(len(path[:-1])):
             mb_obs.append(obs)
             mb_vector.append(vector)
             mb_hidden_state.append([hidden_state[0].cpu().detach().numpy(), hidden_state[1].cpu().detach().numpy()])
             mb_message.append(message)
+            mb_mask.append(comm_mask)
 
-            hidden_state, message = self.local_model.generate_state(obs, vector, hidden_state, message)
+            hidden_state, message = self.local_model.generate_state(obs, vector, hidden_state, message, comm_mask)
 
             actions = np.zeros(self.imitation_num_agent)
             for i in range(self.imitation_num_agent):
@@ -273,8 +286,9 @@ class Runner(object):
 
             obs, vector, rewards, done, _, on_goal, _, valid_actions, _, _, _, _, _, _, _ = \
                 self.imitation_env.joint_step(actions, 0, model='imitation', pre_value=None, input_state=None,
-                                              ps=None, no_reward=None, message=None, episodic_buffer=None)
-
+                                              ps=None, no_reward=None, message=None,
+                                              episodic_buffer=None, comm_mask=None)
+            comm_mask = self.imitation_env.get_comm_mask()
             vector[:, :, -1] = actions
             new_xy = self.imitation_env.get_positions()
             _, _, intrinsic_reward, min_dist = self.imitation_episodic_buffer.if_reward(new_xy, rewards, done, on_goal)
@@ -291,4 +305,5 @@ class Runner(object):
         mb_vector = np.concatenate(mb_vector, axis=0)
         mb_actions = np.asarray(mb_actions, dtype=np.int64)
         mb_hidden_state = np.stack(mb_hidden_state)
-        return mb_obs, mb_vector, mb_actions, mb_hidden_state, mb_message
+        mb_mask = np.concatenate(mb_mask, axis=0)
+        return mb_obs, mb_vector, mb_actions, mb_hidden_state, mb_message, mb_mask

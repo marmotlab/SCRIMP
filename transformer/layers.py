@@ -16,11 +16,11 @@ class EncoderLayer(nn.Module):
         self.norm1 = nn.LayerNorm(d_model, eps=1e-6)
         self.norm2 = nn.LayerNorm(d_model, eps=1e-6)
 
-    def forward(self, enc_input):
+    def forward(self, enc_input, comm_mask):
         """run a computation block"""
         enc_output = self.norm1(enc_input)
         enc_output, enc_slf_attn = self.slf_attn(
-            enc_output, enc_output, enc_output)
+            enc_output, enc_output, enc_output, comm_mask)
         enc_output_1 = self.gate1(enc_input, enc_output)
         enc_output = self.pos_ffn(self.norm2(enc_output_1))
         enc_output = self.gate2(enc_output_1, enc_output)

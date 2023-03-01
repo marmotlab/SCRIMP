@@ -80,7 +80,7 @@ class SCRIMPNet(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     @autocast()
-    def forward(self, obs, vector, input_state, message):
+    def forward(self, obs, vector, input_state, message, comm_mask):
         """run neural network"""
         num_agent = obs.shape[1]
         obs = torch.reshape(obs, (-1,  NetParameters.NUM_CHANNEL, EnvParameters.FOV_SIZE, EnvParameters.FOV_SIZE))
@@ -109,7 +109,7 @@ class SCRIMPNet(nn.Module):
         memories = torch.reshape(memories, (-1, num_agent, NetParameters.NET_SIZE // 2))
         h2 = torch.reshape(h2, (-1, num_agent, NetParameters.NET_SIZE))
 
-        c1 = self.communication_layer(message)
+        c1 = self.communication_layer(message, comm_mask)
 
         c1 = torch.cat([c1, memories, h2], -1)
         c1 = F.relu(self.fully_connected_4(c1))
@@ -121,4 +121,5 @@ class SCRIMPNet(nn.Module):
         blocking = torch.sigmoid(self.blocking_layer(c1))
         message = self.message_layer(c1)
         return policy, value_in, value_ex, blocking, policy_sig, output_state, policy_layer, message
+
 

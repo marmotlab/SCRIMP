@@ -122,12 +122,14 @@ def main():
                 # get imitation learning data
                 mb_obs, mb_vector, mb_actions, mb_hidden_state = [], [], [], []
                 mb_message = []
+                mb_mask = []
                 for results in range(done_len):
                     mb_obs.append(job_results[results][0])
                     mb_vector.append(job_results[results][1])
                     mb_actions.append(job_results[results][2])
                     mb_hidden_state.append(job_results[results][3])
                     mb_message.append(job_results[results][4])
+                    mb_mask.append(job_results[results][5])
                     curr_episodes += job_results[results][-2]
                     curr_steps += job_results[results][-1]
                 mb_obs = np.concatenate(mb_obs, axis=0)
@@ -135,13 +137,14 @@ def main():
                 mb_hidden_state = np.concatenate(mb_hidden_state, axis=0)
                 mb_actions = np.concatenate(mb_actions, axis=0)
                 mb_message = np.concatenate(mb_message, axis=0)
+                mb_mask = np.concatenate(mb_mask, axis=0)
 
                 # training of imitation learning
                 mb_imitation_loss = []
                 for start in range(0, np.shape(mb_obs)[0], TrainingParameters.MINIBATCH_SIZE):
                     end = start + TrainingParameters.MINIBATCH_SIZE
                     slices = (arr[start:end] for arr in
-                              (mb_obs, mb_vector, mb_actions, mb_hidden_state, mb_message))
+                              (mb_obs, mb_vector, mb_actions, mb_hidden_state, mb_message, mb_mask))
                     mb_imitation_loss.append(global_model.imitation_train(*slices))
                 mb_imitation_loss = np.nanmean(mb_imitation_loss, axis=0)
 
@@ -157,6 +160,7 @@ def main():
                     mb_values_ex, mb_values_all, mb_actions, mb_ps, mb_hidden_state, mb_train_valid,\
                     mb_blocking = [], [], [], [], [], [], [], [], [], [], [], [], []
                 mb_message = []
+                mb_mask = []
                 performance_dict = {'per_r': [], 'per_in_r': [], 'per_ex_r': [], 'per_valid_rate': [],
                                     'per_episode_len': [], 'per_block': [],
                                     'per_leave_goal': [], 'per_final_goals': [], 'per_half_goals': [],
@@ -177,6 +181,7 @@ def main():
                     mb_train_valid.append(job_results[results][11])
                     mb_blocking.append(job_results[results][12])
                     mb_message.append(job_results[results][13])
+                    mb_mask.append(job_results[results][14])
                     curr_episodes += job_results[results][-2]
                     for i in performance_dict.keys():
                         performance_dict[i].append(np.nanmean(job_results[results][-1][i]))
@@ -198,6 +203,7 @@ def main():
                 mb_train_valid = np.concatenate(mb_train_valid, axis=0)
                 mb_blocking = np.concatenate(mb_blocking, axis=0)
                 mb_message = np.concatenate(mb_message, axis=0)
+                mb_mask = np.concatenate(mb_mask, axis=0)
 
                 # training of reinforcement learning
                 mb_loss = []
@@ -210,7 +216,7 @@ def main():
                         slices = (arr[mb_inds] for arr in
                                   (mb_obs, mb_vector, mb_returns_in, mb_returns_ex, mb_returns_all, mb_values_in,
                                    mb_values_ex, mb_values_all, mb_actions, mb_ps, mb_hidden_state,
-                                   mb_train_valid, mb_blocking, mb_message))
+                                   mb_train_valid, mb_blocking, mb_message, mb_mask))
                         mb_loss.append(global_model.train(*slices))
 
                 # record training result
@@ -317,6 +323,7 @@ def evaluate(eval_env, episodic_buffer, model, device, save_gif, curr_steps, gre
                         torch.zeros((num_agent, NetParameters.NET_SIZE // 2)).to(device))
 
         done, valid_actions, obs, vector, _ = reset_env(eval_env, num_agent)
+        comm_mask = eval_env.get_comm_mask()
         episodic_buffer.reset(curr_steps, num_agent)
         new_xy = eval_env.get_positions()
         episodic_buffer.batch_add(new_xy)
@@ -335,14 +342,16 @@ def evaluate(eval_env, episodic_buffer, model, device, save_gif, curr_steps, gre
                                                                                                hidden_state,
                                                                                                greedy,
                                                                                                episodic_buffer.no_reward,
-                                                                                               message, num_agent)
+                                                                                               message, num_agent,
+                                                                                               comm_mask)
             one_episode_perf['invalid'] += num_invalid
 
             # move
             rewards, valid_actions, obs, vector, _, done, _, num_on_goals, one_episode_perf, max_on_goals, \
                 _, _, on_goal = one_step(eval_env, one_episode_perf, actions, pre_block, model, v_all, hidden_state,
-                                         ps, episodic_buffer.no_reward, message, episodic_buffer, num_agent)
+                                         ps, episodic_buffer.no_reward, message, episodic_buffer, num_agent, comm_mask)
 
+            comm_mask = eval_env.get_comm_mask()
             new_xy = eval_env.get_positions()
             processed_rewards, be_rewarded, intrinsic_reward, min_dist = episodic_buffer.if_reward(new_xy, rewards,
                                                                                                    done, on_goal)

@@ -22,13 +22,14 @@ class Model(object):
             # self.multi_gpu_net = torch.nn.DataParallel(self.network) # training on multiple GPU
             self.net_scaler = GradScaler()  # automatic mixed precision
 
-    def step(self, observation, vector, valid_action, input_state, no_reward, message, num_agent):
+    def step(self, observation, vector, valid_action, input_state, no_reward, message, num_agent, comm_mask):
         """using neural network in training for prediction"""
         num_invalid = 0
         observation = torch.from_numpy(observation).to(self.device)
         vector = torch.from_numpy(vector).to(self.device)
+        comm_mask = torch.from_numpy(comm_mask).to(self.device)
         ps, v_in, v_ex, block, _, output_state, _, message = self.network(observation, vector, input_state,
-                                                                          message)
+                                                                          message, comm_mask)
 
         actions = np.zeros(num_agent)
         ps = np.squeeze(ps.cpu().detach().numpy())
@@ -47,13 +48,16 @@ class Model(object):
             actions[i] = np.random.choice(range(EnvParameters.N_ACTIONS), p=ps[i].ravel())
         return actions, ps, v_in, v_ex, v_all, block, output_state, num_invalid, message
 
-    def evaluate(self, observation, vector, valid_action, input_state, greedy, no_reward, message, num_agent):
+    def evaluate(self, observation, vector, valid_action, input_state, greedy, no_reward, message,
+                 num_agent, comm_mask):
         """using neural network in evaluations of training code for prediction"""
         num_invalid = 0
         eval_action = np.zeros(num_agent)
         observation = torch.from_numpy(np.asarray(observation)).to(self.device)
         vector = torch.from_numpy(vector).to(self.device)
-        ps, v_in, v_ex, block, _, output_state, _, message = self.network(observation, vector, input_state, message)
+        comm_mask = torch.from_numpy(comm_mask).to(self.device)
+        ps, v_in, v_ex, block, _, output_state, _, message = self.network(observation, vector, input_state,
+                                                                          message, comm_mask)
 
         ps = np.squeeze(ps.cpu().detach().numpy())
         block = np.squeeze(block.cpu().detach().numpy())
@@ -73,11 +77,12 @@ class Model(object):
             eval_action = greedy_action
         return eval_action, block, output_state, num_invalid, v_all, ps, message
 
-    def value(self, obs, vector, input_state, no_reward, message):
+    def value(self, obs, vector, input_state, no_reward, message, comm_mask):
         """using neural network to predict state values"""
         obs = torch.from_numpy(obs).to(self.device)
         vector = torch.from_numpy(vector).to(self.device)
-        _, v_in, v_ex, _, _, _, _, _ = self.network(obs, vector, input_state, message)
+        comm_mask = torch.from_numpy(comm_mask).to(self.device)
+        _, v_in, v_ex, _, _, _, _, _ = self.network(obs, vector, input_state, message, comm_mask)
         v_in = v_in.cpu().detach().numpy()
         v_ex = v_ex.cpu().detach().numpy()
 
@@ -87,19 +92,22 @@ class Model(object):
         v_all = v_ex + scale_factor * v_in
         return v_in, v_ex, v_all
 
-    def generate_state(self, obs, vector, input_state, message):
+    def generate_state(self, obs, vector, input_state, message, comm_mask):
         """generate corresponding hidden states and messages in imitation learning"""
         obs = torch.from_numpy(obs).to(self.device)
         vector = torch.from_numpy(vector).to(self.device)
-        _, _, _, _, _, output_state, _, message = self.network(obs, vector, input_state, message)
+        comm_mask = torch.from_numpy(comm_mask).to(self.device)
+        _, _, _, _, _, output_state, _, message = self.network(obs, vector, input_state, message, comm_mask)
         return output_state, message
 
-    def final_evaluate(self, observation, vector, input_state, message, num_agent, greedy):
+    def final_evaluate(self, observation, vector, input_state, message, num_agent, comm_mask, greedy):
         """using neural network in independent evaluations for prediction"""
         eval_action = np.zeros(num_agent)
         observation = torch.from_numpy(np.asarray(observation)).to(self.device)
         vector = torch.from_numpy(vector).to(self.device)
-        ps, v_in, v_ex, _, _, output_state, _, message = self.network(observation, vector, input_state, message)
+        comm_mask = torch.from_numpy(comm_mask).to(self.device)
+        ps, v_in, v_ex, _, _, output_state, _, message = self.network(observation, vector, input_state,
+                                                                      message, comm_mask)
 
         ps = np.squeeze(ps.cpu().detach().numpy())
         greedy_action = np.argmax(ps, axis=-1)
@@ -115,13 +123,14 @@ class Model(object):
         return eval_action, output_state, v_all, ps, message
 
     def train(self, observation, vector, returns_in, returns_ex, returns_all, old_v_in, old_v_ex, old_v_all, action,
-              old_ps, input_state, train_valid, target_blockings, message):
+              old_ps, input_state, train_valid, target_blockings, message, comm_mask):
         """train model0 by reinforcement learning"""
         self.net_optimizer.zero_grad()
         # from numpy to torch
         observation = torch.from_numpy(observation).to(self.device)
         vector = torch.from_numpy(vector).to(self.device)
         message = torch.from_numpy(message).to(self.device)
+        comm_mask = torch.from_numpy(comm_mask).to(self.device)
 
         returns_in = torch.from_numpy(returns_in).to(self.device)
         returns_ex = torch.from_numpy(returns_ex).to(self.device)
@@ -149,7 +158,7 @@ class Model(object):
 
         with autocast():
             new_ps, new_v_in, new_v_ex, block, policy_sig, _, _, _ = self.network(observation, vector, input_state,
-                                                                                  message)
+                                                                                  message, comm_mask)
             new_p = new_ps.gather(-1, action)
             old_p = old_ps.gather(-1, action)
             ratio = torch.exp(torch.log(torch.clamp(new_p, 1e-6, 1.0)) - torch.log(torch.clamp(old_p, 1e-6, 1.0)))
@@ -218,7 +227,7 @@ class Model(object):
         """load global weights to local models"""
         self.network.load_state_dict(weights)
 
-    def imitation_train(self, observation, vector, optimal_action, input_state, message):
+    def imitation_train(self, observation, vector, optimal_action, input_state, message, comm_mask):
         """train model0 by imitation learning"""
         self.net_optimizer.zero_grad()
 
@@ -226,6 +235,7 @@ class Model(object):
         vector = torch.from_numpy(vector).to(self.device)
         optimal_action = torch.from_numpy(optimal_action).to(self.device)
         message = torch.from_numpy(message).to(self.device)
+        comm_mask = torch.from_numpy(comm_mask).to(self.device)
         input_state_h = torch.from_numpy(
             np.reshape(input_state[:, 0], (-1, NetParameters.NET_SIZE // 2))).to(self.device)
         input_state_c = torch.from_numpy(
@@ -234,7 +244,7 @@ class Model(object):
         input_state = (input_state_h, input_state_c)
 
         with autocast():
-            _, _, _, _, _, _, logits, _ = self.network(observation, vector, input_state, message)
+            _, _, _, _, _, _, logits, _ = self.network(observation, vector, input_state, message, comm_mask)
             logits = torch.swapaxes(logits, 1, 2)
             imitation_loss = F.cross_entropy(logits, optimal_action)
 

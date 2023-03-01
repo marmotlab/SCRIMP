@@ -13,11 +13,11 @@ class Encoder(nn.Module):
         super().__init__()
         self.layer_stack = nn.ModuleList([EncoderLayer(d_model, d_hidden, n_head, d_k, d_v) for _ in range(n_layers)])
 
-    def forward(self, enc_output, return_attns=False):
+    def forward(self, enc_output, comm_mask, return_attns=False):
         """use self attention to merge messages"""
         enc_slf_attn_list = []
         for enc_layer in self.layer_stack:
-            enc_output, enc_slf_attn = enc_layer(enc_output)
+            enc_output, enc_slf_attn = enc_layer(enc_output, comm_mask)
             enc_slf_attn_list += [enc_slf_attn] if return_attns else []
 
         if return_attns:
@@ -61,10 +61,10 @@ class TransformerEncoder(nn.Module):
 
         self.position_enc = PositionalEncoding(d_model, n_position=n_position)
 
-    def forward(self, encoder_input):
+    def forward(self, encoder_input, comm_mask):
         """run encoder"""
         encoder_input = self.position_enc(encoder_input)
 
-        enc_output, *_ = self.encoder(encoder_input)
+        enc_output, *_ = self.encoder(encoder_input, comm_mask)
 
         return enc_output
