@@ -63,7 +63,7 @@ class Runner(object):
                 mb_hidden_state.append(
                     [self.hidden_state[0].cpu().detach().numpy(), self.hidden_state[1].cpu().detach().numpy()])
                 mb_message.append(self.message)
-                actions, ps, values_in, values_ex, values_all, pre_block, output_state, num_invalid, self.message = \
+                actions, ps, values_in, values_ex, values_all, pre_block, self.hidden_state, num_invalid, self.message = \
                     self.local_model.step(self.obs, self.vector, self.valid_actions, self.hidden_state,
                                           self.episodic_buffer.no_reward, self.message, self.num_agent)
                 self.one_episode_perf['invalid'] += num_invalid
@@ -77,7 +77,7 @@ class Runner(object):
                 rewards, self.valid_actions, self.obs, self.vector, self.train_valid, self.done, blockings, \
                     num_on_goals, self.one_episode_perf, max_on_goals, action_status, modify_actions, on_goal \
                     = one_step(self.env, self.one_episode_perf, actions, pre_block, self.local_model, values_all,
-                               output_state, ps, self.episodic_buffer.no_reward, self.message, self.episodic_buffer,
+                               self.hidden_state, ps, self.episodic_buffer.no_reward, self.message, self.episodic_buffer,
                                self.num_agent)
 
                 new_xy = self.env.get_positions()
