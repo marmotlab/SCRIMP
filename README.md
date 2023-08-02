@@ -41,9 +41,8 @@ Python == 3.7
 
 ## Other Links
 
-Fully trained SCRIMP model - https://www.dropbox.com/sh/bt4kbwhzf7yb22o/AAA4R40sysSrsqIBTPOVGKAca?dl=0
+Fully trained SCRIMP model - https://www.dropbox.com/scl/fo/ekhxyt7gm575kfwaerwb5/h?rlkey=j3cdikwofz0zelj2oci9q97k8&dl=0
 
-Fully trained SCRIMP-local model - https://www.dropbox.com/sh/g8s64xkdgcon97d/AAAiEWtYyuqlvSbcwGNhODBYa?dl=0
 
 ## Authors
 
