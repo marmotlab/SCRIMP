@@ -3,7 +3,7 @@ This is the code for implementing the SCRIMP algorithm :`SCRIMP: Scalable Commun
 
 ## Requirements
 
-Python == 3.8
+Python == 3.7
    ```
     pip install -r requirements.txt
    ```
@@ -13,7 +13,7 @@ Python == 3.8
 
 * cd into the od_mstar3 folder.
 * python3 setup.py build_ext --inplace.
-* Check by going back to the root of the git folder, running python3 and `import cpp_mstar`.
+* Check by going back to the root of the git folder, running python3 and `import od_mstar3.cpp_mstar`.
     
 ## Running Code
 
