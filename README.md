@@ -3,7 +3,7 @@ This is the code for implementing the SCRIMP algorithm :`SCRIMP: Scalable Commun
 
 ## Requirements
 
-Python == 3.7
+Python == 3.8
    ```
     pip install -r requirements.txt
    ```
